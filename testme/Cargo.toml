@@ -1,0 +1,8 @@
+[package]
+name = "testme"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+testme-derive = { path = "../testme-derive" }
+linkme = "0.3.33"
