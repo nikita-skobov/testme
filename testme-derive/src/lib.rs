@@ -1,7 +1,7 @@
 use proc_macro::TokenStream;
 use proc_macro2::{Span, Ident};
 use quote::quote;
-use syn::{parse_macro_input, Item, ItemMod};
+use syn::{parse_macro_input, Block, Item, ItemFn, ItemMod, Stmt};
 
 fn get_hash(s: &str) -> u32 {
     adler2::adler32_slice(s.as_bytes())
@@ -86,6 +86,113 @@ fn get_all_static_items(linkme_idents: LinkmeIdents) -> [Item; 7] {
     [test_handles, run_all_lock, before_each_item, before_all_item, after_each_item, after_all_item, submit_fn]
 }
 
+fn is_test_fn(f: &ItemFn) -> bool {
+    for attr in f.attrs.iter() {
+        match &attr.meta {
+            syn::Meta::Path(path) => {
+                if let Some(i) = path.get_ident() {
+                    if i.to_string() == "test" {
+                        return true;
+                    }
+                }
+            }
+            _ => return false,
+        }
+    }
+    false
+}
+
+fn wrap_test_fn(f: &mut ItemFn) {
+    if !is_test_fn(f) {
+        return;
+    }
+    if f.sig.asyncness.take().is_some() {
+        wrap_test_fn_block_async(&mut f.block);
+    } else {
+        wrap_test_fn_block(&mut f.block);
+    }
+}
+
+/// we consider any function with names:
+/// - after_all
+/// - before_all
+/// - after_each
+/// - before_each
+/// 
+/// to be a linkme function
+fn wrap_linkme_functions(linkme_idents: &LinkmeIdents, f: &mut ItemFn) {
+    let fn_name = f.sig.ident.to_string();
+    match fn_name.as_str() {
+        "before_all" => {
+            wrap_linkme_func(linkme_idents.before_all.clone(), false, f);
+        }
+        "before_each" => {
+            wrap_linkme_func(linkme_idents.before_each.clone(), true, f);
+        }
+        "after_all" => {
+            wrap_linkme_func(linkme_idents.after_all.clone(), false, f);
+        }
+        "after_each" => {
+            wrap_linkme_func(linkme_idents.after_each.clone(), true, f);
+        }
+        _ => return
+    }
+}
+
+fn wrap_linkme_func(
+    linkme_static: Ident,
+    needs_send: bool,
+    f: &mut ItemFn
+) {
+    let name = &f.sig.ident;
+    let block = &f.block;
+
+    let item_fn: ItemFn = if needs_send {
+        syn::parse_quote!(
+            #[::testme::distributed_slice(#linkme_static)]
+            fn #name() -> std::pin::Pin<Box<dyn Future<Output = ()> + Send>> {
+                Box::pin(async #block)
+            }
+        )
+    } else {
+        syn::parse_quote!(
+            #[::testme::distributed_slice(#linkme_static)]
+            fn #name() -> std::pin::Pin<Box<dyn Future<Output = ()>>> {
+                Box::pin(async #block)
+            }
+        )
+    };
+    *f = item_fn;
+}
+
+fn wrap_test_fn_block(b: &mut Block) {
+    let stmts: Vec<Stmt> = syn::parse_quote!(
+        let (tx, rx) = ::tokio::sync::oneshot::channel();
+
+        let f = async {};
+        let box_fut: std::pin::Pin<Box<dyn Future<Output = ()> + Send + Sync>> = Box::pin(f);
+        let blocking_fn = || #b;    
+        let blocking_fn = Box::new(blocking_fn);
+
+        submit_test_internal(rx, ::testme::Test { fut: box_fut, blocking_fn: Some(blocking_fn), callback: tx });
+    );
+
+    b.stmts = stmts;
+}
+
+fn wrap_test_fn_block_async(b: &mut Block) {
+    let stmts: Vec<Stmt> = syn::parse_quote!(
+        let (tx, rx) = ::tokio::sync::oneshot::channel();
+
+        let f = async #b;
+        let box_fut: std::pin::Pin<Box<dyn Future<Output = ()> + Send + Sync>> = Box::pin(f);
+
+        submit_test_internal(rx, ::testme::Test { fut: box_fut, blocking_fn: None, callback: tx });
+    );
+
+    b.stmts = stmts;
+}
+
 #[proc_macro_attribute]
 pub fn testme(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut input = parse_macro_input!(item as ItemMod);
@@ -100,17 +207,23 @@ pub fn testme(_attr: TokenStream, item: TokenStream) -> TokenStream {
         for item in items {
             if let Item::Fn(f) = item {
                 all_fn_names.push_str(&f.sig.ident.to_string());
+                // modify in place all the test functions
+                wrap_test_fn(f);
             }
         }
-        // let item: Item = syn::parse_quote!(
-        //     const X: u32 = 2;
-        // );
-        // items.push(item);
     }
     let hash = get_hash(&all_fn_names);
     let linkme_idents = get_all_linkme_idents(hash);
-    let insert_items = get_all_static_items(linkme_idents.clone());
+    let mut insert_items = get_all_static_items(linkme_idents.clone());
+    insert_items.reverse();
     if let Some((_, items)) = mod_content {
+        // now wrap any of the after/before each/all functions
+        for item in items.iter_mut() {
+            if let Item::Fn(f) = item {
+                wrap_linkme_functions(&linkme_idents, f);
+            }
+        }
+        // for aesthetic purposes, insert our generated code at the top:
         for insert in insert_items {
             items.insert(0, insert);
         }

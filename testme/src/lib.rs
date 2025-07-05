@@ -41,7 +41,6 @@ pub fn should_loop(
 }
 
 pub struct Test {
-    pub name: &'static str,
     pub blocking_fn: Option<Box<dyn FnOnce() + Send + 'static>>,
     pub fut: std::pin::Pin<Box<dyn Future<Output = ()> + Send + Sync>>,
     pub callback: Sender<Result<(), JoinError>>,
