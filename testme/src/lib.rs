@@ -1,3 +1,80 @@
+//! Basic usage: simply add `#[testme]` to any existing test module. Tests continue to work as expected
+//! ```
+//! use testme::testme;
+//! #[testme]
+//! mod test {
+//!     #[test]
+//!     fn my_test() {
+//!         assert_eq(2, 2);
+//!     }
+//! }
+//! ```
+//! 
+//! Can easily run async tests:
+//! ```
+//! use testme::testme;
+//! #[testme]
+//! mod test {
+//!     #[test]
+//!     async fn my_test() {
+//!         let now = std::time::Instant::now();
+//!         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+//!         assert_eq!(now.elapsed().as_secs(), 2);
+//!     }
+//! 
+//!     // can have async tests as well as non-async tests
+//!     #[test]
+//!     fn can_mix_and_match() {
+//!         assert_eq!("a", "a");
+//!     }
+//! }
+//! ```
+//! 
+//! Can run code before all/after all:
+//! ```
+//! use testme::testme;
+//! #[testme]
+//! mod test {
+//!     fn before_all() {
+//!         println!("this happens before any test starts");
+//!     }
+//!     // all of the before/after functions can optionally be async
+//!     async fn after_all() {
+//!         println!("this happens after all tests");
+//!     }
+//! 
+//!     #[test]
+//!     fn a() {
+//!         assert_eq!("a", "a");
+//!     }
+//!     #[test]
+//!     #[should_panic]
+//!     fn b() {
+//!         assert_eq!("b", "a");
+//!     }
+//! }
+//! ```
+//! 
+//! Note: you cannot have two modules in the same crate with the same exact function names. the following is a compilation error:
+//! ```compile_fail
+//! use testme::testme;
+//! #[testme]
+//! mod test {
+//!     #[test]
+//!     fn my_test() {
+//!         assert!(true);
+//!     }
+//! }
+//! #[testme]
+//! mod other_test {
+//!     #[test]
+//!     fn my_test() {
+//!         assert!(true);
+//!     }
+//! }
+//! ```
+
+
 use std::{sync::{Mutex, OnceLock}, time::Duration};
 
 pub use linkme::distributed_slice;
