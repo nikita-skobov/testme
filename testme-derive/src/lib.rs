@@ -7,6 +7,7 @@ fn get_hash(s: &str) -> u32 {
     adler2::adler32_slice(s.as_bytes())
 }
 
+#[derive(Clone)]
 struct LinkmeIdents {
     before_each: Ident,
     before_all: Ident,
@@ -22,7 +23,36 @@ fn get_all_linkme_idents(hash: u32) -> LinkmeIdents {
     LinkmeIdents { before_each, before_all, after_each, after_all }
 }
 
-fn get_all_static_items(linkme_idents: LinkmeIdents) -> [Item; 6] {
+fn get_submit_test_internal_fn(linkme_idents: LinkmeIdents) -> Item {
+    let LinkmeIdents {
+        before_each,
+        before_all,
+        after_each,
+        after_all,
+    } = linkme_idents;
+    let submit_internal: Item = syn::parse_quote!(
+        fn submit_test_internal(
+            rx: ::tokio::sync::oneshot::Receiver<Result<(), ::tokio::task::JoinError>>,
+            t: ::testme::Test,
+        ) {
+            ::testme::submit_test(
+                &RUN_ALL_LOCK,
+                &TEST_HANDLES,
+                #before_each,
+                #before_all,
+                #after_each,
+                #after_all,
+                rx,
+                t,
+            )
+        }
+    );
+    submit_internal
+}
+
+fn get_all_static_items(linkme_idents: LinkmeIdents) -> [Item; 7] {
+    let submit_fn = get_submit_test_internal_fn(linkme_idents.clone());
+
     let LinkmeIdents {
         before_each,
         before_all,
@@ -53,7 +83,7 @@ fn get_all_static_items(linkme_idents: LinkmeIdents) -> [Item; 6] {
         #[::testme::distributed_slice]
         static #after_all: [fn() -> std::pin::Pin<Box<dyn Future<Output = ()>>>];
     );
-    [test_handles, run_all_lock, before_each_item, before_all_item, after_each_item, after_all_item]
+    [test_handles, run_all_lock, before_each_item, before_all_item, after_each_item, after_all_item, submit_fn]
 }
 
 #[proc_macro_attribute]
@@ -79,7 +109,7 @@ pub fn testme(_attr: TokenStream, item: TokenStream) -> TokenStream {
     }
     let hash = get_hash(&all_fn_names);
     let linkme_idents = get_all_linkme_idents(hash);
-    let insert_items = get_all_static_items(linkme_idents);
+    let insert_items = get_all_static_items(linkme_idents.clone());
     if let Some((_, items)) = mod_content {
         for insert in insert_items {
             items.insert(0, insert);
