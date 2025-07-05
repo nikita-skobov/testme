@@ -22,13 +22,21 @@ fn get_all_linkme_idents(hash: u32) -> LinkmeIdents {
     LinkmeIdents { before_each, before_all, after_each, after_all }
 }
 
-fn get_all_linkme_statics(linkme_idents: LinkmeIdents) -> [Item; 4] {
+fn get_all_static_items(linkme_idents: LinkmeIdents) -> [Item; 6] {
     let LinkmeIdents {
         before_each,
         before_all,
         after_each,
         after_all,
     } = linkme_idents;
+
+    let test_handles: Item = syn::parse_quote!(
+        static TEST_HANDLES: std::sync::OnceLock<std::sync::Mutex<Vec<::testme::Test>>> = std::sync::OnceLock::new();
+    );
+    let run_all_lock: Item = syn::parse_quote!(
+        static RUN_ALL_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    );
+
     let before_each_item: Item = syn::parse_quote!(
         #[::testme::distributed_slice]
         static #before_each: [fn() -> std::pin::Pin<Box<dyn Future<Output=()> + Send>>];
@@ -45,7 +53,7 @@ fn get_all_linkme_statics(linkme_idents: LinkmeIdents) -> [Item; 4] {
         #[::testme::distributed_slice]
         static #after_all: [fn() -> std::pin::Pin<Box<dyn Future<Output = ()>>>];
     );
-    [before_each_item, before_all_item, after_each_item, after_all_item]
+    [test_handles, run_all_lock, before_each_item, before_all_item, after_each_item, after_all_item]
 }
 
 #[proc_macro_attribute]
@@ -71,7 +79,7 @@ pub fn testme(_attr: TokenStream, item: TokenStream) -> TokenStream {
     }
     let hash = get_hash(&all_fn_names);
     let linkme_idents = get_all_linkme_idents(hash);
-    let insert_items = get_all_linkme_statics(linkme_idents);
+    let insert_items = get_all_static_items(linkme_idents);
     if let Some((_, items)) = mod_content {
         for insert in insert_items {
             items.insert(0, insert);
