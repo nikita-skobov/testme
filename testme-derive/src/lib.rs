@@ -68,19 +68,19 @@ fn get_all_static_items(linkme_idents: LinkmeIdents) -> [Item; 7] {
     );
 
     let before_each_item: Item = syn::parse_quote!(
-        #[::testme::distributed_slice]
+        #[::testme::linkme::distributed_slice]
         static #before_each: [fn() -> std::pin::Pin<Box<dyn Future<Output=()> + Send>>];
     );
     let before_all_item: Item = syn::parse_quote!(
-        #[::testme::distributed_slice]
+        #[::testme::linkme::distributed_slice]
         static #before_all: [fn() -> std::pin::Pin<Box<dyn Future<Output = ()>>>];
     );
     let after_each_item: Item = syn::parse_quote!(
-        #[::testme::distributed_slice]
+        #[::testme::linkme::distributed_slice]
         static #after_each: [fn() -> std::pin::Pin<Box<dyn Future<Output=()> + Send>>];
     );
     let after_all_item: Item = syn::parse_quote!(
-        #[::testme::distributed_slice]
+        #[::testme::linkme::distributed_slice]
         static #after_all: [fn() -> std::pin::Pin<Box<dyn Future<Output = ()>>>];
     );
     [test_handles, run_all_lock, before_each_item, before_all_item, after_each_item, after_all_item, submit_fn]
@@ -149,14 +149,14 @@ fn wrap_linkme_func(
 
     let item_fn: ItemFn = if needs_send {
         syn::parse_quote!(
-            #[::testme::distributed_slice(#linkme_static)]
+            #[::testme::linkme::distributed_slice(#linkme_static)]
             fn #name() -> std::pin::Pin<Box<dyn Future<Output = ()> + Send>> {
                 Box::pin(async #block)
             }
         )
     } else {
         syn::parse_quote!(
-            #[::testme::distributed_slice(#linkme_static)]
+            #[::testme::linkme::distributed_slice(#linkme_static)]
             fn #name() -> std::pin::Pin<Box<dyn Future<Output = ()>>> {
                 Box::pin(async #block)
             }

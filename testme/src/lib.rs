@@ -77,8 +77,8 @@
 
 use std::{sync::{Mutex, OnceLock}, time::Duration};
 
-pub use linkme::distributed_slice;
-use linkme::DistributedSlice;
+pub use linkme;
+use linkme::*;
 pub use testme_derive::testme;
 use tokio::{sync::oneshot::{Receiver, Sender}, task::JoinError};
 
